@@ -178,6 +178,7 @@ namespace stl = tinystl;
 #	include <unordered_map>
 #	include <unordered_set>
 #	include <vector>
+namespace stl = std;
 #endif // BGFX_CONFIG_USE_TINYSTL
 
 #if BX_PLATFORM_ANDROID
@@ -814,11 +815,11 @@ namespace bgfx
 			return key;
 		}
 
-		/// Returns true if item is command.
-		bool decode(uint64_t _key)
+		/// Returns true if item is compute command.
+		bool decode(uint64_t _key, uint8_t _viewRemap[BGFX_CONFIG_MAX_VIEWS])
 		{
 			m_seq  = uint32_t( (_key & SORT_KEY_SEQ_MASK ) >> SORT_KEY_SEQ_SHIFT);
-			m_view =  uint8_t( (_key & SORT_KEY_VIEW_MASK) >> SORT_KEY_VIEW_SHIFT);
+			m_view = _viewRemap[(_key & SORT_KEY_VIEW_MASK) >> SORT_KEY_VIEW_SHIFT];
 			if (_key & SORT_KEY_DRAW_BIT)
 			{
 				m_depth   = uint32_t( (_key & SORT_KEY_DRAW_DEPTH_MASK  ) >> SORT_KEY_DRAW_DEPTH_SHIFT);
@@ -831,11 +832,9 @@ namespace bgfx
 			return true; // compute
 		}
 
-		bool decode(uint64_t _key, uint8_t _viewRemap[BGFX_CONFIG_MAX_VIEWS])
+		static uint8_t decodeView(uint64_t _key)
 		{
-			bool compute = decode(_key);
-			m_view = _viewRemap[m_view];
-			return compute;
+			return uint8_t( (_key & SORT_KEY_VIEW_MASK) >> SORT_KEY_VIEW_SHIFT);
 		}
 
 		static uint64_t remapView(uint64_t _key, uint8_t _viewRemap[BGFX_CONFIG_MAX_VIEWS])
@@ -3256,17 +3255,6 @@ namespace bgfx
 			return m_frames + 2;
 		}
 
-		BGFX_API_FUNC(uint32_t readTexture(FrameBufferHandle _handle, uint8_t _attachment, void* _data) )
-		{
-			const FrameBufferRef& ref = m_frameBufferRef[_handle.idx];
-			BX_CHECK(!ref.m_window, "Can't sample window frame buffer.");
-
-			TextureHandle textureHandle = ref.un.m_th[_attachment];
-			BGFX_CHECK_HANDLE("readTexture", m_textureHandle, textureHandle);
-
-			return readTexture(textureHandle, _data,0);
-		}
-
 		void resizeTexture(TextureHandle _handle, uint16_t _width, uint16_t _height, uint8_t _numMips)
 		{
 			const TextureRef& textureRef = m_textureRef[_handle.idx];
@@ -3440,6 +3428,21 @@ namespace bgfx
 			}
 
 			return handle;
+		}
+
+		BGFX_API_FUNC(TextureHandle getTexture(FrameBufferHandle _handle, uint8_t _attachment) )
+		{
+			BGFX_CHECK_HANDLE("getTexture", m_frameBufferHandle, _handle);
+
+			const FrameBufferRef& ref = m_frameBufferRef[_handle.idx];
+			if (!ref.m_window)
+			{
+				uint32_t attachment = bx::uint32_min(_attachment, BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS);
+				return ref.un.m_th[attachment];
+			}
+
+			TextureHandle invalid = BGFX_INVALID_HANDLE;
+			return invalid;
 		}
 
 		BGFX_API_FUNC(void destroyFrameBuffer(FrameBufferHandle _handle) )
@@ -3728,10 +3731,10 @@ namespace bgfx
 			setViewTransform(_id, NULL, NULL, BGFX_VIEW_NONE, NULL);
 		}
 
-		BGFX_API_FUNC(void setViewRemap(uint8_t _id, uint8_t _num, const void* _remap) )
+		BGFX_API_FUNC(void setViewOrder(uint8_t _id, uint8_t _num, const void* _order) )
 		{
 			const uint32_t num = bx::uint32_min(_id + _num, BGFX_CONFIG_MAX_VIEWS) - _id;
-			if (NULL == _remap)
+			if (NULL == _order)
 			{
 				for (uint32_t ii = 0; ii < num; ++ii)
 				{
@@ -3741,7 +3744,7 @@ namespace bgfx
 			}
 			else
 			{
-				memcpy(&m_viewRemap[_id], _remap, num);
+				memcpy(&m_viewRemap[_id], _order, num);
 			}
 		}
 
@@ -3878,21 +3881,6 @@ namespace bgfx
 			m_submit->setTexture(_stage, _sampler, _handle, _flags);
 		}
 
-		BGFX_API_FUNC(void setTexture(uint8_t _stage, UniformHandle _sampler, FrameBufferHandle _handle, uint8_t _attachment, uint32_t _flags) )
-		{
-			BGFX_CHECK_HANDLE_INVALID_OK("setTexture/FrameBufferHandle", m_frameBufferHandle, _handle);
-			TextureHandle textureHandle = BGFX_INVALID_HANDLE;
-			if (isValid(_handle) )
-			{
-				const FrameBufferRef& ref = m_frameBufferRef[_handle.idx];
-				BX_CHECK(!ref.m_window, "Can't sample window frame buffer.");
-				textureHandle = ref.un.m_th[_attachment];
-				BX_CHECK(isValid(textureHandle), "Frame buffer texture %d is invalid.", _attachment);
-			}
-
-			m_submit->setTexture(_stage, _sampler, textureHandle, _flags);
-		}
-
 		BGFX_API_FUNC(uint32_t submit(uint8_t _id, ProgramHandle _program, OcclusionQueryHandle _occlusionQuery, int32_t _depth, bool _preserveState) )
 		{
 			BGFX_CHECK_HANDLE_INVALID_OK("submit", m_programHandle, _program);
@@ -3970,20 +3958,6 @@ namespace bgfx
 			m_submit->setImage(_stage, _sampler, _handle, _mip, _access, _format);
 		}
 
-		BGFX_API_FUNC(void setImage(uint8_t _stage, UniformHandle _sampler, FrameBufferHandle _handle, uint8_t _attachment, Access::Enum _access, TextureFormat::Enum _format) )
-		{
-			TextureHandle textureHandle = BGFX_INVALID_HANDLE;
-			if (isValid(_handle) )
-			{
-				const FrameBufferRef& ref = m_frameBufferRef[_handle.idx];
-				BX_CHECK(!ref.m_window, "Can't sample window frame buffer.");
-				textureHandle = ref.un.m_th[_attachment];
-				BX_CHECK(isValid(textureHandle), "Frame buffer texture %d is invalid.", _attachment);
-			}
-
-			setImage(_stage, _sampler, textureHandle, 0, _access, _format);
-		}
-
 		BGFX_API_FUNC(uint32_t dispatch(uint8_t _id, ProgramHandle _handle, uint16_t _numX, uint16_t _numY, uint16_t _numZ, uint8_t _flags) )
 		{
 			if (BX_ENABLED(BGFX_CONFIG_DEBUG_UNIFORM) )
@@ -4024,15 +3998,6 @@ namespace bgfx
 			m_submit->blit(_id, _dst, _dstMip, _dstX, _dstY, _dstZ, _src, _srcMip, _srcX, _srcY, _srcZ, _width, _height, _depth);
 		}
 
-		BGFX_API_FUNC(void blit(uint8_t _id, TextureHandle _dst, uint8_t _dstMip, uint16_t _dstX, uint16_t _dstY, uint16_t _dstZ, FrameBufferHandle _src, uint8_t _attachment, uint8_t _srcMip, uint16_t _srcX, uint16_t _srcY, uint16_t _srcZ, uint16_t _width, uint16_t _height, uint16_t _depth) )
-		{
-			const FrameBufferRef& ref = m_frameBufferRef[_src.idx];
-			BX_CHECK(!ref.m_window, "Can't sample window frame buffer.");
-			TextureHandle textureHandle = ref.un.m_th[_attachment];
-			BX_CHECK(isValid(textureHandle), "Frame buffer texture %d is invalid.", _attachment);
-			blit(_id, _dst, _dstMip, _dstX, _dstY, _dstZ, textureHandle, _srcMip, _srcX, _srcY, _srcZ, _width, _height, _depth);
-		}
-
 		BGFX_API_FUNC(uint32_t frame(bool _capture = false) );
 
 		void dumpViewStats();
@@ -4048,7 +4013,7 @@ namespace bgfx
 		void rendererExecCommands(CommandBuffer& _cmdbuf);
 
 #if BGFX_CONFIG_MULTITHREADED
-		void gameSemPost()
+		void apiSemPost()
 		{
 			if (!m_singleThreaded)
 			{
@@ -4101,7 +4066,7 @@ namespace bgfx
 		bx::Semaphore m_apiSem;
 		bx::Thread m_thread;
 #else
-		void gameSemPost()
+		void apiSemPost()
 		{
 		}
 
