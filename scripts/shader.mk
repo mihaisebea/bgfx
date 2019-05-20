@@ -1,6 +1,6 @@
 #
-# Copyright 2011-2016 Branimir Karadzic. All rights reserved.
-# License: http://www.opensource.org/licenses/BSD-2-Clause
+# Copyright 2011-2019 Branimir Karadzic. All rights reserved.
+# License: https://github.com/bkaradzic/bgfx#license-bsd-2-clause
 #
 
 THISDIR:=$(dir $(lastword $(MAKEFILE_LIST)))
@@ -23,6 +23,17 @@ all:
 	@echo "  TARGET=5 (metal)"
 	@echo "  TARGET=6 (pssl)"
 	@echo "  TARGET=7 (spriv)"
+
+.PHONY: rebuild
+rebuild:
+	@make -s --no-print-directory TARGET=0 clean all
+	@make -s --no-print-directory TARGET=1 clean all
+	@make -s --no-print-directory TARGET=2 clean all
+	@make -s --no-print-directory TARGET=3 clean all
+	@make -s --no-print-directory TARGET=4 clean all
+	@make -s --no-print-directory TARGET=5 clean all
+	@make -s --no-print-directory TARGET=7 clean all
+
 else
 
 ADDITIONAL_INCLUDES?=
@@ -33,8 +44,8 @@ FS_FLAGS=--platform windows -p ps_3_0 -O 3
 SHADER_PATH=shaders/dx9
 else
 ifeq ($(TARGET), 1)
-VS_FLAGS=--platform windows -p vs_4_0 -O 3
-FS_FLAGS=--platform windows -p ps_4_0 -O 3
+VS_FLAGS=--platform windows -p vs_5_0 -O 3
+FS_FLAGS=--platform windows -p ps_5_0 -O 3
 CS_FLAGS=--platform windows -p cs_5_0 -O 1
 SHADER_PATH=shaders/dx11
 else
@@ -105,32 +116,22 @@ CS_BIN = $(addprefix $(BUILD_INTERMEDIATE_DIR)/, $(addsuffix .bin, $(basename $(
 BIN = $(VS_BIN) $(FS_BIN)
 ASM = $(VS_ASM) $(FS_ASM)
 
-ifeq ($(TARGET), 1)
+ifeq ($(TARGET), $(filter $(TARGET),1 3 4 5 6))
 BIN += $(CS_BIN)
 ASM += $(CS_ASM)
-else
-ifeq ($(TARGET), 3)
-BIN += $(CS_BIN)
-ASM += $(CS_ASM)
-else
-ifeq ($(TARGET), 4)
-BIN += $(CS_BIN)
-ASM += $(CS_ASM)
-endif
-endif
 endif
 
-$(BUILD_INTERMEDIATE_DIR)/vs_%.bin : $(SHADERS_DIR)vs_%.sc
+$(BUILD_INTERMEDIATE_DIR)/vs_%.bin: $(SHADERS_DIR)vs_%.sc
 	@echo [$(<)]
 	$(SILENT) $(SHADERC) $(VS_FLAGS) --type vertex --depends -o $(@) -f $(<) --disasm
 	$(SILENT) cp $(@) $(BUILD_OUTPUT_DIR)/$(@F)
 
-$(BUILD_INTERMEDIATE_DIR)/fs_%.bin : $(SHADERS_DIR)fs_%.sc
+$(BUILD_INTERMEDIATE_DIR)/fs_%.bin: $(SHADERS_DIR)fs_%.sc
 	@echo [$(<)]
 	$(SILENT) $(SHADERC) $(FS_FLAGS) --type fragment --depends -o $(@) -f $(<) --disasm
 	$(SILENT) cp $(@) $(BUILD_OUTPUT_DIR)/$(@F)
 
-$(BUILD_INTERMEDIATE_DIR)/cs_%.bin : $(SHADERS_DIR)cs_%.sc
+$(BUILD_INTERMEDIATE_DIR)/cs_%.bin: $(SHADERS_DIR)cs_%.sc
 	@echo [$(<)]
 	$(SILENT) $(SHADERC) $(CS_FLAGS) --type compute --depends -o $(@) -f $(<) --disasm
 	$(SILENT) cp $(@) $(BUILD_OUTPUT_DIR)/$(@F)
@@ -143,6 +144,10 @@ all: dirs $(BIN)
 clean:
 	@echo Cleaning...
 	@-rm -vf $(BIN)
+
+.PHONY: cleanall
+cleanall:
+	@echo Cleaning...
 	@-$(call CMD_RMDIR,$(BUILD_INTERMEDIATE_DIR))
 
 .PHONY: dirs
@@ -152,6 +157,8 @@ dirs:
 
 .PHONY: rebuild
 rebuild: clean all
+
+$(BIN) : | $(BUILD_INTERMEDIATE_DIR)
 
 endif # TARGET
 
